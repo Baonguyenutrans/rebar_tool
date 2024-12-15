@@ -150,7 +150,7 @@ OUT = start_point_l1,end_point_l1,start_point_l2,end_point_l2
 #     direct_shape = DirectShape.CreateElement(doc, category_id)
 #     direct_shape.SetShape(solid)
 
-# # Commit the transaction
+# t.Commit()
 # t.Commit()
 
 
