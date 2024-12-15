@@ -102,3 +102,6 @@ for solid in sub_solid:
 t.Commit()
 
 OUT = sub_solid
+
+
+#test new features
