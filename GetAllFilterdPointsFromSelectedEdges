@@ -1,0 +1,75 @@
+
+import clr  # Common Language Runtime, .NET's execution environment
+import sys  # Fundamental Python library to manipulate the runtime environment
+
+# Load standard IronPython libraries
+sys.path.append('C:\Program Files\IronPython 2.7\Lib')
+
+import System  # Root namespace of .NET
+from System import Array  # .NET class for handling array information
+from System.Collections.Generic import *  # To handle generic collections
+
+# Add references to necessary Dynamo and Revit libraries
+clr.AddReference('ProtoGeometry')
+from Autodesk.DesignScript.Geometry import *  # Dynamo geometry library
+
+clr.AddReference("RevitNodes")
+import Revit
+clr.ImportExtensions(Revit.Elements)
+clr.ImportExtensions(Revit.GeometryConversion)
+
+clr.AddReference("RevitServices")
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+clr.AddReference("RevitAPI")
+clr.AddReference("RevitAPIUI")
+
+import Autodesk 
+from Autodesk.Revit.DB import *  # Revit API classes
+from Autodesk.Revit.UI import *  # Revit API UI classes
+
+import math
+
+#Set up handles to the active Revit document and application
+doc = DocumentManager.Instance.CurrentDBDocument
+uiapp = DocumentManager.Instance.CurrentUIApplication
+app = uiapp.Application
+uidoc = uiapp.ActiveUIDocument
+active_view = uidoc.ActiveView
+
+# Get the current document and selection
+ui_doc = DocumentManager.Instance.CurrentUIApplication.ActiveUIDocument
+doc = ui_doc.Document
+
+# Pick an object (an element in this case)
+picked_objects = ui_doc.Selection.PickObjects(Selection.ObjectType.Edge,"Select Model Curves")
+
+curve_List = [doc.GetElement(picked_object) for picked_object in picked_objects]
+
+curves = []
+for ref, elem in zip(picked_objects, curve_List):
+    curves.append(elem.GetGeometryObjectFromReference(ref).AsCurve())#.ToProtoType())
+# Get the element using its ElementId
+
+#curves =[]
+#for picked_object in picked_objects:
+    #sel_element = doc.GetElement(picked_object.ElementId).GeometryCurve
+    #curves.append(sel_element)
+
+points = []
+for curve in curves:
+    start_point = curve.GetEndPoint(0)
+    end_point = curve.GetEndPoint(1)
+    points.append(start_point)
+    points.append(end_point)
+
+def remove_duplicate_points_with_tolerance(points, tolerance):
+    unique_points = []
+    for point in points:
+        # Check if the point is sufficiently different from all points in unique_points
+        if not any(math.dist((point.X, point.Y, point.Z), (u.X, u.Y, u.Z)) <= tolerance for u in unique_points):
+            unique_points.append(point)
+    return unique_points
+
+points = remove_duplicate_points_with_tolerance(points,0.1)
