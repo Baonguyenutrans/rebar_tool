@@ -71,20 +71,20 @@ hook_orientations = []
 start_hook_types = []
 end_hook_types = []
 
-for rebar in rebar_elements:
-    # Get hook orientation
-    hook_orientation = rebar.GetHookOrientation(1)
-    hook_orientations.append(hook_orientation)
+# for rebar in rebar_elements:
+#     # Get hook orientation
+#     hook_orientation = rebar.GetHookOrientation(1)
+#     hook_orientations.append(hook_orientation)
 
-    # Get start and end hook types
-    start_hook_type = doc.GetElement(rebar.GetHookTypeId(0))  # 0 = Start Hook
-    end_hook_type = doc.GetElement(rebar.GetHookTypeId(1) ) # 1 = End Hook
+#     # Get start and end hook types
+#     start_hook_type = doc.GetElement(rebar.GetHookTypeId(0))  # 0 = Start Hook
+#     end_hook_type = doc.GetElement(rebar.GetHookTypeId(1) ) # 1 = End Hook
 
-    start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
-    end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
-    # Store hook type names
-    start_hook_types.append(start_hook_types_name)
-    end_hook_types.append(end_hook_types_name)
+#     start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+#     end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+#     # Store hook type names
+#     start_hook_types.append(start_hook_types_name)
+#     end_hook_types.append(end_hook_types_name)
 
 
 ####ORIGIN LOCATION 
@@ -167,13 +167,13 @@ grouped = [item for idx, item in enumerate(grouped) if idx not in moved_bars_ind
 combined_items = grouped.__add__(moved_bars_curves)
 
 # # #convert to dynamo curves
-# dyn_curves =  []
-# for curves in combined_items:
-#     out = []
-#     for curve in curves:
-#         dyn_curve = curve.ToProtoType()
-#         out.append(dyn_curve)
-#     dyn_curves.append(out)
+dyn_curves =  []
+for curves in combined_items:
+    out = []
+    for curve in curves:
+        dyn_curve = curve.ToProtoType()
+        out.append(dyn_curve)
+    dyn_curves.append(out)
  
 ### GET HOST ELEMENT 
 
@@ -185,7 +185,7 @@ host_element_ID = host_element.Id
 
 ######### RE - CREATE REBARS FROM SET OF REBAR
 
-OUT  = host_element_ID
+OUT  = dyn_curves
 #dyn_curves
 #(bar_diameters,hook_orientations, start_hook_types, end_hook_types)
 
