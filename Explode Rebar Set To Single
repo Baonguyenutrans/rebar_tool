@@ -1,0 +1,194 @@
+
+import clr  # Common Language Runtime, .NET's execution environment
+import sys  # Fundamental Python library to manipulate the runtime environment
+
+# Load standard IronPython libraries
+sys.path.append('C:\Program Files\IronPython 2.7\Lib')
+
+import System  # Root namespace of .NET
+from System import Array  # .NET class for handling array information
+from System.Collections.Generic import *  # To handle generic collections
+
+# Add references to necessary Dynamo and Revit libraries
+clr.AddReference('ProtoGeometry')
+from Autodesk.DesignScript.Geometry import *  # Dynamo geometry library
+
+clr.AddReference("RevitNodes")
+import Revit
+clr.ImportExtensions(Revit.Elements)
+clr.ImportExtensions(Revit.GeometryConversion)
+
+clr.AddReference("RevitServices")
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+clr.AddReference("RevitAPI")
+clr.AddReference("RevitAPIUI")
+
+import Autodesk 
+from Autodesk.Revit.DB import *  # Revit API classes
+from Autodesk.Revit.UI import *  # Revit API UI classes
+
+
+
+# Set up handles to the active Revit document and application
+doc = DocumentManager.Instance.CurrentDBDocument
+uiapp = DocumentManager.Instance.CurrentUIApplication
+app = uiapp.Application
+uidoc = uiapp.ActiveUIDocument
+active_view = uidoc.ActiveView
+
+
+moved_bars_curves = []
+
+import Autodesk.Revit.DB as DB
+
+# Unwrap the input elements
+rebar_elements = UnwrapElement(IN[1]) if isinstance(IN[1], list) else [UnwrapElement(IN[1])]
+
+
+# Output list for BAR DIAMETER
+bar_diameters = []
+
+for rebar in rebar_elements:
+
+    # Get the Rebar Type
+    rebar_type = doc.GetElement(rebar.GetTypeId())
+
+    # Get the Bar Diameter parameter
+    bar_diameter_param = rebar_type.LookupParameter("Bar Diameter")
+    
+    if bar_diameter_param:
+        bar_diameters.append(bar_diameter_param.AsDouble() * 304.8)  # Convert from feet to mm
+    else:
+        bar_diameters.append(None)
+
+
+## OUTPUT HOOK TYPE AND HOOK ORIENTATIONS
+
+# Output lists
+hook_orientations = []
+start_hook_types = []
+end_hook_types = []
+
+for rebar in rebar_elements:
+    # Get hook orientation
+    hook_orientation = rebar.GetHookOrientation(1)
+    hook_orientations.append(hook_orientation)
+
+    # Get start and end hook types
+    start_hook_type = doc.GetElement(rebar.GetHookTypeId(0))  # 0 = Start Hook
+    end_hook_type = doc.GetElement(rebar.GetHookTypeId(1) ) # 1 = End Hook
+
+    start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+    end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+    # Store hook type names
+    start_hook_types.append(start_hook_types_name)
+    end_hook_types.append(end_hook_types_name)
+
+
+####ORIGIN LOCATION 
+
+
+# List to store the transformed centerline curves
+transformed_center_curves = []
+
+# Iterate through each selected rebar element
+for bar in rebar_elements:
+    # Ensure the element is a Rebar element
+    if isinstance(bar, DB.Structure.Rebar):
+        rebar_accessor = bar.GetShapeDrivenAccessor()  # Get the RebarShapeDrivenAccessor
+        number_of_bars = bar.NumberOfBarPositions  # Get the number of bars directly from the Rebar element
+        
+        # Define the MultiplanarOption
+        multiplanar_option = DB.Structure.MultiplanarOption.IncludeAllMultiplanarCurves
+        
+        # Get the centerline curves with the correct number of arguments
+        centerline_curves = bar.GetCenterlineCurves(
+            False,   # includeSegmentsThatDoNotHaveRebar
+            True,   # NotincludeHooks
+            True,  # suppressHooks
+            multiplanar_option,
+            False   # suppressBendRadius
+        )
+        # Apply the transform for each bar position
+        for i in range(number_of_bars):
+            bar_transform = rebar_accessor.GetBarPositionTransform(i)  # Get the transform for each bar position
+            
+            for curve in centerline_curves:
+                # Transform the curve to get its final position
+                transformed_curve = curve.CreateTransformed(bar_transform)
+                transformed_center_curves.append(transformed_curve)
+                
+num_curves = len(centerline_curves)
+def group_list(items, group_size= num_curves):
+    return [items[i:i + group_size] for i in range(0, len(items), group_size)]
+
+#total_curves = len(transformed_center_curves)
+# Group into chunks of 10
+grouped = group_list(transformed_center_curves)
+#convert to dynamo curves
+
+
+
+#### MOVED BARS ###
+
+# Output list of moved bars
+moved_bars_indexs = []
+
+for rebar in rebar_elements:
+    shape_accessor = rebar.GetShapeDrivenAccessor()
+    bar_count = rebar.NumberOfBarPositions  # Get the number of bars in the set
+
+    for i in range(bar_count):
+        transform = rebar.GetMovedBarTransform(i)  # Get movement transform
+        
+        # Check if the transform is NOT an identity matrix (meaning it has moved)
+        if not transform.AlmostEqual(Transform.Identity):
+            moved_bars_indexs.append( i)  # Store moved rebar index
+
+#moved_bars.append((rebar.Id.IntegerValue, i)) # Store moved rebar ID,  index
+
+
+    # Get moved bars' center curves
+    for i in moved_bars_indexs:
+        transform = rebar.GetMovedBarTransform(i)
+        transformed_curves = [
+            curve.CreateTransformed(transform) for curve in grouped[i]
+        ]
+        moved_bars_curves.append(transformed_curves)
+
+
+
+##REMOVE THE MOVED OBJECT FROM THE ORIGIN LIST 
+grouped = [item for idx, item in enumerate(grouped) if idx not in moved_bars_indexs]
+
+## COMBINED THE REMAIN ITEMS FROM THE ORIGIN LIST AND MOVED ITEMS TRANSFORM CURVES
+combined_items = grouped.__add__(moved_bars_curves)
+
+# # #convert to dynamo curves
+# dyn_curves =  []
+# for curves in combined_items:
+#     out = []
+#     for curve in curves:
+#         dyn_curve = curve.ToProtoType()
+#         out.append(dyn_curve)
+#     dyn_curves.append(out)
+ 
+### GET HOST ELEMENT 
+
+
+# Pick an object (an element in this case)
+host_element = UnwrapElement(IN[2])
+# Get the element using its ElementId
+host_element_ID = host_element.Id
+
+######### RE - CREATE REBARS FROM SET OF REBAR
+
+OUT  = host_element_ID
+#dyn_curves
+#(bar_diameters,hook_orientations, start_hook_types, end_hook_types)
+
+
+
+
