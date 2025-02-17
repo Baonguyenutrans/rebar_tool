@@ -1,0 +1,268 @@
+
+import clr  # Common Language Runtime, .NET's execution environment
+import sys  # Fundamental Python library to manipulate the runtime environment
+
+# Load standard IronPython libraries
+sys.path.append('C:\Program Files\IronPython 2.7\Lib')
+
+import System  # Root namespace of .NET
+from System import Array  # .NET class for handling array information
+from System.Collections.Generic import *  # To handle generic collections
+
+# Add references to necessary Dynamo and Revit libraries
+clr.AddReference('ProtoGeometry')
+from Autodesk.DesignScript.Geometry import *  # Dynamo geometry library
+
+clr.AddReference("RevitNodes")
+import Revit
+clr.ImportExtensions(Revit.Elements)
+clr.ImportExtensions(Revit.GeometryConversion)
+
+clr.AddReference("RevitServices")
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+clr.AddReference("RevitAPI")
+clr.AddReference("RevitAPIUI")
+
+import Autodesk 
+from Autodesk.Revit.DB import *  # Revit API classes
+from Autodesk.Revit.UI import *  # Revit API UI classes
+
+
+
+# Set up handles to the active Revit document and application
+doc = DocumentManager.Instance.CurrentDBDocument
+uiapp = DocumentManager.Instance.CurrentUIApplication
+app = uiapp.Application
+uidoc = uiapp.ActiveUIDocument
+active_view = uidoc.ActiveView
+
+
+moved_bars_curves = []
+
+import Autodesk.Revit.DB as DB
+
+# Unwrap the input elements
+rebar_element = UnwrapElement(IN[1])
+
+
+# Output list for BAR DIAMETER
+
+
+bar_diameters = []
+
+# Get the Rebar Type
+rebar_type = doc.GetElement(rebar_element.GetTypeId())
+
+# Get the Bar Diameter parameter
+bar_diameter_param = rebar_type.LookupParameter("Bar Diameter")
+
+if bar_diameter_param:
+    bar_diameters.append(bar_diameter_param.AsDouble() * 304.8)  # Convert from feet to mm
+else:
+    bar_diameters.append(None)
+
+
+# ## OUTPUT HOOK TYPE AND HOOK ORIENTATIONS
+
+# Get hook orientation
+hook_orientation = rebar_element.GetHookOrientation(1)
+    
+# Get start and end hook types
+start_hook_type = doc.GetElement(rebar_element.GetHookTypeId(0))  # 0 = Start Hook
+end_hook_type = doc.GetElement(rebar_element.GetHookTypeId(1) ) # 1 = End Hook
+
+start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+
+
+# ####ORIGIN LOCATION 
+
+
+# # List to store the transformed centerline curves
+transformed_center_curves = []
+
+rebar_accessor = rebar_element.GetShapeDrivenAccessor()  # Get the RebarShapeDrivenAccessor
+number_of_bars = rebar_element.NumberOfBarPositions  # Get the number of bars directly from the Rebar element
+        
+# Define the MultiplanarOption
+multiplanar_option = DB.Structure.MultiplanarOption.IncludeAllMultiplanarCurves
+        
+# Get the centerline curves with the correct number of arguments
+centerline_curves = rebar_element.GetCenterlineCurves(
+    False,   # includeSegmentsThatDoNotHaveRebar
+    True,   # NotincludeHooks
+    True,  # suppressHooks
+    multiplanar_option,
+    False   # suppressBendRadius
+)
+# Apply the transform for each bar position
+for i in range(number_of_bars):
+    bar_transform = rebar_accessor.GetBarPositionTransform(i)  # Get the transform for each bar position
+    for curve in centerline_curves:
+        # Transform the curve to get its final position
+        transformed_curve = curve.CreateTransformed(bar_transform)
+        transformed_center_curves.append(transformed_curve)
+                
+num_curves = len(centerline_curves)
+
+def group_list(items, group_size= num_curves):
+    return [items[i:i + group_size] for i in range(0, len(items), group_size)]
+
+#total_curves = len(transformed_center_curves)
+# Group into chunks of 10
+grouped = group_list(transformed_center_curves)
+
+
+
+# #### MOVED BARS ###
+
+# # Output list of moved bars
+moved_bars_indexs = []
+
+for i in range(number_of_bars):
+    transform = rebar_element.GetMovedBarTransform(i)  # Get movement transform
+    # Check if the transform is NOT an identity matrix (meaning it has moved)
+    if not transform.AlmostEqual(Transform.Identity):
+        moved_bars_indexs.append( i)  # Store moved rebar index
+
+
+# Get moved bars' center curves
+for i in moved_bars_indexs:
+    transform = rebar_element.GetMovedBarTransform(i)
+    transformed_curves = [
+        curve.CreateTransformed(transform) for curve in grouped[i]
+    ]
+    moved_bars_curves.append(transformed_curves)
+
+
+
+##REMOVE THE MOVED OBJECT FROM THE ORIGIN LIST 
+grouped = [item for idx, item in enumerate(grouped) if idx not in moved_bars_indexs]
+
+## COMBINED THE REMAIN ITEMS FROM THE ORIGIN LIST AND MOVED ITEMS TRANSFORM CURVES
+combined_items = grouped.__add__(moved_bars_curves)
+
+
+
+
+def order_curves(curves):
+    """
+    Orders curves in a sequence where each curve starts where the previous one ends.
+    """
+    ordered_curves = [curves.pop(0)]  # Start with the first curve
+    while curves:
+        last_curve = ordered_curves[-1]
+        last_end = last_curve.GetEndPoint(1)
+        for i, curve in enumerate(curves):
+            if curve.GetEndPoint(0).IsAlmostEqualTo(last_end):
+                ordered_curves.append(curves.pop(i))
+                break
+            elif curve.GetEndPoint(1).IsAlmostEqualTo(last_end):
+                ordered_curves.append(curves.pop(i).CreateReversed())  # Reverse if needed
+                break
+    return ordered_curves
+
+
+
+ordered_curves_list = []
+for curves in combined_items:
+    ordered_curves = order_curves(curves)
+    ordered_curves_list.append(ordered_curves)
+
+
+# output_curve_loop = []
+# for list in ordered_curves_list:
+#     curve_loop = Autodesk.Revit.DB.CurveLoop()
+#     for curve in list:
+#         curve_loop.Append(curve)  # Now they will be connected properly
+#     output_curve_loop.append(curve_loop)  
+
+# # # #convert to dynamo curves
+# dyn_curves =  []
+# for curves in ordered_curves_list:
+#     out = []
+#     for curve in curves:
+#         dyn_curve = curve.ToProtoType()
+#         out.append(dyn_curve)
+#     dyn_curves.append(out)
+ 
+# ### GET HOST ELEMENT 
+
+
+# # Pick an object (an element in this case)
+# host_element = UnwrapElement(IN[2])
+# # Get the element using its ElementId
+# host_element_ID = host_element.Id
+
+rebar_style = Structure.RebarStyle.Standard
+start_hook_orientation = Structure.RebarHookOrientation.Left
+end_hook_orientation = Structure.RebarHookOrientation.Left
+
+
+# Pick an object (an element in this case)
+host_element = uidoc.Selection.PickObject(Selection.ObjectType.Element,"Select Host Element")
+# Get the element using its ElementId
+host_element_ID = doc.GetElement(host_element.ElementId)
+# ######### RE - CREATE REBARS FROM SET OF REBAR
+
+#GET ARRANGEMENT PATH NORMAL
+curves_list = ordered_curves_list[1]
+def find_lowest_curve(curves):
+    """
+    Finds the lowest curve (based on minimum Z-value of its endpoints).
+    """
+    lowest_curve = None
+    lowest_z = float('inf')
+
+    for curve in curves:
+        start_z = curve.GetEndPoint(0).Z
+        end_z = curve.GetEndPoint(1).Z
+        min_z = min(start_z, end_z)  # Get the lowest Z-value of this curve
+
+        if min_z < lowest_z:  # Update if this curve is lower
+            lowest_z = min_z
+            lowest_curve = curve
+
+    return lowest_curve  # Returns the curve that is the lowest
+
+# Example usage:
+bottom_edge = find_lowest_curve(curves_list)
+
+# start_point = curves_list.ToRevitType().GetEndPoint(0)
+# end_point = bottom_edge.ToRevitType().GetEndPoint(1)
+# vector = XYZ(end_point.X - start_point.X,end_point.Y - start_point.Y,end_point.Z - start_point.Z).Normalize()
+# normal = vector.CrossProduct(XYZ.BasisZ)
+
+
+# # Start a new transaction
+# t = Transaction(doc, "Create from Selected Element")
+# t.Start()
+
+
+# bar =  Structure.Rebar.CreateFromCurves(doc,
+# rebar_style,
+# rebar_type,
+# start_hook_type,
+# end_hook_type,
+# host_element_ID,
+# normal,
+# curves,
+# start_hook_orientation,
+# end_hook_orientation,
+# True,
+# True)
+# #new_bars.append(bar)
+
+# t.Commit()	
+
+OUT = bottom_edge
+
+#OUT  = normal
+#dyn_curves
+#(bar_diameters,hook_orientations, start_hook_types, end_hook_types)
+
+
+
+
