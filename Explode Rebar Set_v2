@@ -1,4 +1,3 @@
-
 import clr  # Common Language Runtime, .NET's execution environment
 import sys  # Fundamental Python library to manipulate the runtime environment
 
@@ -73,8 +72,8 @@ hook_orientation = rebar_element.GetHookOrientation(1)
 start_hook_type = doc.GetElement(rebar_element.GetHookTypeId(0))  # 0 = Start Hook
 end_hook_type = doc.GetElement(rebar_element.GetHookTypeId(1) ) # 1 = End Hook
 
-start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
-end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+# start_hook_types_name = start_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
+# end_hook_types_name = end_hook_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString()
 
 
 # ####ORIGIN LOCATION 
@@ -179,14 +178,19 @@ for curves in combined_items:
 #         curve_loop.Append(curve)  # Now they will be connected properly
 #     output_curve_loop.append(curve_loop)  
 
-# # # #convert to dynamo curves
-# dyn_curves =  []
-# for curves in ordered_curves_list:
-#     out = []
-#     for curve in curves:
-#         dyn_curve = curve.ToProtoType()
-#         out.append(dyn_curve)
-#     dyn_curves.append(out)
+# # #convert to dynamo curves
+dyn_curves =  []
+for curves in ordered_curves_list:
+    out = []
+    for curve in curves:
+        dyn_curve = curve.ToProtoType()
+        out.append(dyn_curve)
+    dyn_curves.append(out)
+
+polycurves = []
+for curves in dyn_curves:
+    polycurve = PolyCurve.ByJoinedCurves(curves)
+    polycurves.append(polycurve)
  
 # ### GET HOST ELEMENT 
 
@@ -209,6 +213,7 @@ host_element_ID = doc.GetElement(host_element.ElementId)
 
 #GET ARRANGEMENT PATH NORMAL
 curves_list = ordered_curves_list[1]
+
 def find_lowest_curve(curves):
     """
     Finds the lowest curve (based on minimum Z-value of its endpoints).
@@ -257,12 +262,8 @@ bottom_edge = find_lowest_curve(curves_list)
 
 # t.Commit()	
 
-OUT = bottom_edge
+OUT = polycurves
 
 #OUT  = normal
 #dyn_curves
 #(bar_diameters,hook_orientations, start_hook_types, end_hook_types)
-
-
-
-
